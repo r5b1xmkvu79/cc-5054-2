@@ -39,7 +39,7 @@ def save_json(obj, path):
         json.dump(obj, f, indent=1)
 
 
-def variant_dir(name):
-    d = os.path.join(OUT, name)
+def variant_dir(name, root=None):
+    d = os.path.join(root or OUT, name)
     os.makedirs(d, exist_ok=True)
     return d

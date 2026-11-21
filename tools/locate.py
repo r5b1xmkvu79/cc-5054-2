@@ -7,9 +7,10 @@ from common import load_json, variant_dir
 
 
 class Locator:
-    def __init__(self, variant):
+    def __init__(self, variant, vdir=None):
         self.variant = variant
-        vd = variant_dir(variant)
+        vd = vdir or variant_dir(variant)
+        self.vdir = vd
         self.index = load_json(os.path.join(vd, "index.json"))
         self.frames = self.index["frames"]
         self.h264_path = os.path.join(vd, "v.h264")

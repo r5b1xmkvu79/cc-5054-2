@@ -12,9 +12,9 @@ PRESET = "medium"
 CRF = "20"
 
 
-def encode_variant(name, forced, g):
-    vd = variant_dir(name)
-    raw = os.path.join(OUT, "frames.rgb")
+def encode_variant(name, forced, g, raw=None, out_root=None):
+    vd = variant_dir(name, out_root)
+    raw = raw or os.path.join(OUT, "frames.rgb")
     h264 = os.path.join(vd, "v.h264")
     mp4 = os.path.join(vd, "v.mp4")
 

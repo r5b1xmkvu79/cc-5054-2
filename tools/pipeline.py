@@ -40,6 +40,11 @@ def step_verify():
     return {v: verify.verify_variant(v) for v in VARIANTS}
 
 
+def step_incremental():
+    import experiments
+    return experiments.main()
+
+
 def stats_row(variant):
     vd = variant_dir(variant)
     idx = load_json(os.path.join(vd, "index.json"))
@@ -140,6 +145,8 @@ def main():
         step_index()
     if "all" in steps or "verify" in steps:
         step_verify()
+    if "all" in steps or "incremental" in steps:
+        step_incremental()
     if "all" in steps or "report" in steps or "verify" in steps:
         report()
 

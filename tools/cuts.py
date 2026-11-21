@@ -12,15 +12,39 @@ import numpy as np
 from common import H, N, OUT, W, save_json
 
 BINS = 8  # per channel
+WIN = 20
+THRESH_D = 0.08
+THRESH_SCORE = 8.0
+SCORE_FLOOR = 0.004
+MERGE_GAP = 3
+
+
+def frame_counts(frame):
+    """Integer rgb histogram of one HxWx3 frame."""
+    f = frame.reshape(H * W, 3).astype(np.int16)
+    idx = (f[:, 0] >> 5) * BINS * BINS + (f[:, 1] >> 5) * BINS + (f[:, 2] >> 5)
+    return np.bincount(idx, minlength=BINS ** 3).astype(np.int64)
+
+
+def hist_counts(raw):
+    """Integer per-frame rgb histogram (n, BINS**3). Exact fingerprint source."""
+    frames = raw.reshape(N, H, W, 3)
+    return np.stack([frame_counts(frames[t]) for t in range(N)])
+
+
+def normalize_counts(counts):
+    return (counts.astype(np.float64) / float(H * W)).astype(np.float32)
 
 
 def histograms(raw):
-    f = raw.reshape(N, H * W, 3).astype(np.int16)
-    idx = (f[..., 0] >> 5) * BINS * BINS + (f[..., 1] >> 5) * BINS + (f[..., 2] >> 5)
-    h = np.zeros((N, BINS ** 3), np.float32)
-    for t in range(N):
-        h[t] = np.bincount(idx[t], minlength=BINS ** 3)
-    return h / (H * W)
+    return normalize_counts(hist_counts(raw))
+
+
+def dist_at(hist, t):
+    """Histogram-intersection distance across the pair (t-1, t)."""
+    if t <= 0:
+        return 0.0
+    return float(1.0 - np.minimum(hist[t - 1], hist[t]).sum())
 
 
 def hist_dist(hist):
@@ -30,37 +54,45 @@ def hist_dist(hist):
     return d
 
 
-def local_baseline(d, win=20):
+def baseline_at(d, t, win=WIN):
+    lo = d[max(1, t - win):t]
+    hi = d[t + 1:t + 1 + win]
+    ctx = np.concatenate([lo, hi])
+    return float(np.median(ctx)) if len(ctx) else 0.0
+
+
+def local_baseline(d, win=WIN):
     base = np.zeros(N, np.float32)
     for t in range(N):
-        lo = d[max(1, t - win):t]
-        hi = d[t + 1:t + 1 + win]
-        ctx = np.concatenate([lo, hi])
-        base[t] = np.median(ctx) if len(ctx) else 0.0
+        base[t] = baseline_at(d, t, win)
     return base
 
 
-def detect(hist):
-    d = hist_dist(hist)
-    base = local_baseline(d)
-    score = d / np.maximum(base, 0.004)
+def threshold(d, base):
+    score = d / np.maximum(base, SCORE_FLOOR)
+    mask = (d > THRESH_D) & (score > THRESH_SCORE)
+    return score, mask
 
-    # elevated frames, grouped into runs; runs separated by <=3 frames merge
-    mask = (d > 0.08) & (score > 8.0)
+
+def build_runs(mask, lo=1, hi=N):
+    """Elevated d-indices grouped into runs; runs <=MERGE_GAP apart merge."""
     runs = []
-    t = 1
-    while t < N:
+    t = lo
+    while t < hi:
         if mask[t]:
             s = t
-            while t < N and mask[t]:
+            while t < hi and mask[t]:
                 t += 1
-            if runs and s - runs[-1][1] <= 3:
+            if runs and s - runs[-1][1] <= MERGE_GAP:
                 runs[-1] = (runs[-1][0], t)
             else:
                 runs.append((s, t))  # d-indices [s, t): frames s-1..t-1 changing
         else:
             t += 1
+    return runs
 
+
+def classify_runs(runs, d, hist, score):
     cands = []
     for s, e in runs:
         n = e - s
@@ -81,8 +113,16 @@ def detect(hist):
             cands.append({"frame": s, "kind": kind, "end": e,
                           "conf": round(float(score[s:e].mean()), 2),
                           "hdist": round(strength, 3)})
-
     cands.sort(key=lambda c: c["frame"])
+    return cands
+
+
+def detect(hist):
+    d = hist_dist(hist)
+    base = local_baseline(d)
+    score, mask = threshold(d, base)
+    runs = build_runs(mask)
+    cands = classify_runs(runs, d, hist, score)
     stats = {"median_hdist": round(float(np.median(d[1:])), 4)}
     return cands, stats
 
@@ -99,6 +139,11 @@ def plan(cands):
                    "note": "controlled keyframe bitrate: cuts/flashes/sharp "
                            "transitions only"},
     }
+
+
+def analyze(raw):
+    hist = histograms(raw)
+    return detect(hist)
 
 
 def main():

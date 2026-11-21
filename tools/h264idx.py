@@ -355,8 +355,8 @@ class StreamState:
                 self.dpb.pop(0)
 
 
-def build_index(variant):
-    vd = variant_dir(variant)
+def build_index(variant, vdir=None, plan_path=None):
+    vd = vdir or variant_dir(variant)
     with open(os.path.join(vd, "v.h264"), "rb") as f:
         data = f.read()
     packets = load_json(os.path.join(vd, "packets.json"))
@@ -445,7 +445,7 @@ def build_index(variant):
         dt = by_frm[i]["pts_time"] - by_frm[i - 1]["pts_time"]
         assert abs(dt - 1.0 / FPS) < 1e-6, f"non-constant frame interval {dt}"
 
-    plan = load_json(os.path.join(os.path.dirname(vd), "plan.json"))
+    plan = load_json(plan_path or os.path.join(os.path.dirname(vd), "plan.json"))
     planned = plan["variants"][variant]["forced"]
     actual = [f["frm"] for f in frames if f["idr"]]
     index = {
